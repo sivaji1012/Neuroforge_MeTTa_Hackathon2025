@@ -43,20 +43,3 @@
 ; Edge-weight utility returning a number given a criteria symbol
 (= (edge-weight $from $to $airline (duration $d) (cost $c) (layovers $l) $criteria)
    (weight-by-criteria (duration $d) (cost $c) (layovers $l) $criteria))
-
-; --- Boilerplate-style helpers ---
-; applyWeighting: illustrative (direct flights)
-(= (applyWeighting $routes duration)
-   (match &self (flight-route $a $b $air (duration $d) (cost $c) (layovers $l)) $d))
-(= (applyWeighting $routes cost)
-   (match &self (flight-route $a $b $air (duration $d) (cost $c) (layovers $l)) $c))
-(= (applyWeighting $routes layovers)
-   (match &self (flight-route $a $b $air (duration $d) (cost $c) (layovers $l)) $l))
-
-; getOptimizedRoute: illustrative; returns candidates for the host to minimize
-(= (getOptimizedRoute $start $end duration)
-   (getDirectRoutes $start $end))
-(= (getOptimizedRoute $start $end cost)
-   (getDirectRoutes $start $end))
-(= (getOptimizedRoute $start $end layovers)
-   (getDirectRoutes $start $end))

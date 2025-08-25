@@ -20,9 +20,11 @@ form, .card {
   margin-bottom: 1rem;
   box-shadow: 0 6px 20px rgba(17,24,39,0.08);
 }
-.row { display: grid; grid-template-columns: 120px 1fr; gap: 0.8rem; align-items: center; margin: 0.5rem 0; }
+.row { display: grid; grid-template-columns: 160px 1fr; gap: 0.8rem; align-items: center; margin: 0.5rem 0; }
 label { font-weight: 600; }
-input { padding: 0.5rem 0.6rem; border: 1px solid #e5e7eb; border-radius: 0.6rem; }
+input, select {
+  padding: 0.5rem 0.6rem; border: 1px solid #e5e7eb; border-radius: 0.6rem;
+}
 button {
   padding: 0.6rem 1rem;
   border: 0;

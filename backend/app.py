@@ -1,5 +1,6 @@
+import math
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
 from flask import Flask, request, jsonify
 import networkx as nx
@@ -46,6 +47,16 @@ SAMPLE_EDGES: List[FlightEdge] = [
 ]
 
 GRAPH = nx.DiGraph()
+
+# City coordinates (approximate, for heuristic)
+CITY_COORDS: Dict[str, Tuple[float, float]] = {
+    "Toronto": (43.65107, -79.347015),
+    "NewYork": (40.712776, -74.005974),
+    "London": (51.507351, -0.127758),
+    "Paris": (48.856613, 2.352222),
+    "Frankfurt": (50.110924, 8.682127),
+    "Rome": (41.902782, 12.496366),
+}
 
 def add_edge_to_graph(edge: FlightEdge):
     GRAPH.add_edge(
@@ -115,9 +126,11 @@ def load_metta_edges(metta_dir: str):
     return edges
 
 # -----------------------------
-# Weighting and Dijkstra
+# Weights & Heuristic
 # -----------------------------
 LAYOVER_PENALTY_PER_HOP_HOURS = 1.5  # tune 0.5–3.0
+CRUISE_SPEED_KMPH = 800.0
+EARTH_R_KM = 6371.0088
 
 def edge_weight(u: str, v: str, attrs: Dict[str, Any],
                 w_duration: float, w_cost: float, w_layovers: float) -> float:
@@ -127,19 +140,55 @@ def edge_weight(u: str, v: str, attrs: Dict[str, Any],
         w_layovers * LAYOVER_PENALTY_PER_HOP_HOURS
     )
 
+def haversine_km(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+    (lat1, lon1), (lat2, lon2) = a, b
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    h = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
+    return 2 * EARTH_R_KM * math.asin(math.sqrt(h))
+
+def heuristic_duration_only(node: str, goal: str, w_duration: float) -> float:
+    """Admissible heuristic: only duration part (ignores cost and layovers, which are >= 0)."""
+    a = CITY_COORDS.get(node)
+    b = CITY_COORDS.get(goal)
+    if not (a and b):
+        return 0.0
+    km = haversine_km(a, b)
+    hours = km / CRUISE_SPEED_KMPH
+    return w_duration * hours
+
+def make_weighted_graph(w_duration: float, w_cost: float, w_layovers: float) -> nx.DiGraph:
+    H = nx.DiGraph()
+    for u, v, attrs in GRAPH.edges(data=True):
+        w = edge_weight(u, v, attrs, w_duration, w_cost, w_layovers)
+        new_attrs = dict(attrs)
+        new_attrs["weight"] = float(w)
+        H.add_edge(u, v, **new_attrs)
+    return H
+
+# -----------------------------
+# Routing
+# -----------------------------
 def compute_best_route(src: str, dst: str,
-                       w_duration: float, w_cost: float, w_layovers: float):
+                       w_duration: float, w_cost: float, w_layovers: float,
+                       method: str = "dijkstra"):
     if src not in GRAPH or dst not in GRAPH:
         return None
 
-    def w_func(u, v, attrs):
-        return edge_weight(u, v, attrs, w_duration, w_cost, w_layovers)
+    H = make_weighted_graph(w_duration, w_cost, w_layovers)
 
     try:
-        path = nx.shortest_path(GRAPH, source=src, target=dst, weight=w_func, method="dijkstra")
+        if method == "a_star":
+            # Use duration-only heuristic (admissible under combined cost)
+            h = lambda n: heuristic_duration_only(n, dst, w_duration)
+            path = nx.astar_path(H, source=src, target=dst, heuristic=h, weight="weight")
+        else:
+            path = nx.shortest_path(H, source=src, target=dst, weight="weight", method="dijkstra")
     except (nx.NetworkXNoPath, nx.NodeNotFound):
         return None
 
+    # Collect details
     edges = []
     total_duration = 0.0
     total_cost = 0.0
@@ -147,7 +196,7 @@ def compute_best_route(src: str, dst: str,
 
     for i in range(len(path) - 1):
         u, v = path[i], path[i+1]
-        attrs = GRAPH[u][v]
+        attrs = H[u][v]
         edges.append({
             "from": u,
             "to": v,
@@ -158,10 +207,7 @@ def compute_best_route(src: str, dst: str,
         total_duration += float(attrs.get("duration", 0.0))
         total_cost     += float(attrs.get("cost", 0.0))
 
-    score = sum(
-        edge_weight(path[i], path[i+1], GRAPH[path[i]][path[i+1]], w_duration, w_cost, w_layovers)
-        for i in range(len(path) - 1)
-    )
+    score = sum(H[path[i]][path[i+1]]["weight"] for i in range(len(path) - 1))
     return {
         "path": path,
         "edges": edges,
@@ -169,7 +215,8 @@ def compute_best_route(src: str, dst: str,
             "duration_hours": round(total_duration, 2),
             "cost_usd": round(total_cost, 2),
             "layovers": total_layovers,
-            "score": round(score, 3),
+            "score": round(float(score), 3),
+            "method": method
         },
     }
 
@@ -204,6 +251,11 @@ def api_routes():
 def api_route():
     src = request.args.get("from")
     dst = request.args.get("to")
+    method = request.args.get("method", "dijkstra").lower()
+    if method not in ("dijkstra", "a_star", "astar", "a*"):
+        method = "dijkstra"
+    if method in ("a_star", "astar", "a*"):
+        method = "a_star"
     if not src or not dst:
         return jsonify({"error": "Missing required params: from, to"}), 400
     try:
@@ -213,7 +265,7 @@ def api_route():
     except Exception:
         return jsonify({"error": "Weights must be numeric"}), 400
 
-    res = compute_best_route(src, dst, w_duration, w_cost, w_layovers)
+    res = compute_best_route(src, dst, w_duration, w_cost, w_layovers, method=method)
     if not res:
         return jsonify({"error": f"No route from {src} to {dst}"}), 404
     return jsonify(res)

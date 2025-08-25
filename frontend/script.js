@@ -15,6 +15,19 @@ async function fetchBestRoute(params) {
   return res.json();
 }
 
+async function addFlight(payload) {
+  const res = await fetch(`/api/update-flight-data`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(j.error || "Failed to add flight");
+  }
+  return res.json();
+}
+
 function renderRoutesTable(data) {
   const el = document.getElementById("routes-table");
   if (!data || !data.routes) {
@@ -46,7 +59,7 @@ function renderResult(res) {
       <li><strong>Duration:</strong> ${t.duration_hours} h</li>
       <li><strong>Cost:</strong> $${t.cost_usd}</li>
       <li><strong>Layovers:</strong> ${t.layovers}</li>
-      <li><strong>Score:</strong> ${t.score}</li>
+      <li><strong>Score:</strong> ${t.score} (${t.method})</li>
     </ul>
   `;
 
@@ -71,6 +84,7 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
   const params = {
     from: document.getElementById("from").value.trim(),
     to: document.getElementById("to").value.trim(),
+    method: document.getElementById("method").value,
     w_duration: document.getElementById("w_duration").value || "1.0",
     w_cost: document.getElementById("w_cost").value || "0.0",
     w_layovers: document.getElementById("w_layovers").value || "0.0",
@@ -78,6 +92,26 @@ document.getElementById("route-form").addEventListener("submit", async (e) => {
   try {
     const res = await fetchBestRoute(params);
     renderResult(res);
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+document.getElementById("add-flight-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const payload = {
+    start: document.getElementById("af_from").value.trim(),
+    end: document.getElementById("af_to").value.trim(),
+    airline: document.getElementById("af_airline").value.trim(),
+    duration: parseFloat(document.getElementById("af_duration").value),
+    cost: parseFloat(document.getElementById("af_cost").value),
+    layovers: parseInt(document.getElementById("af_layovers").value || "0", 10),
+  };
+  try {
+    await addFlight(payload);
+    alert("Flight added!");
+    const data = await fetchRoutes();
+    renderRoutesTable(data);
   } catch (err) {
     alert(err.message);
   }
