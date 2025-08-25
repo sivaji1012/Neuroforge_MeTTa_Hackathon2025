@@ -11,6 +11,16 @@ This project is a **minimal, working** flight-route optimizer with:
 
 ---
 
+### 0) Running the Code
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\\Scripts\\activate
+pip install -r requirements.txt
+python app.py
+
+
 ## Quick Start
 
 ### 1) Backend
@@ -24,7 +34,7 @@ python app.py
 
 The API starts at http://127.0.0.1:5000.
 
-2) Frontend
+### 2) Frontend
 
 Open frontend/index.html in your browser. It calls the backend APIs directly.
 
