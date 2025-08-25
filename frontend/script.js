@@ -1,4 +1,4 @@
-// Call the API on the SAME origin (served by Flask on :5500)
+// Same-origin calls to Flask on :5500
 async function fetchRoutes() {
   const res = await fetch(`/api/routes`);
   if (!res.ok) throw new Error("Failed to fetch routes");

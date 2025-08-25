@@ -1,5 +1,4 @@
 ; Sample MeTTa knowledge base: flight facts + preferences
-; Facts use a uniform shape that the Python backend can query.
 ; (duration hours), (cost USD), (layovers 0) for direct edges.
 
 (flight-route "Toronto" "NewYork" "AirCanada" (duration 1.5) (cost 220) (layovers 0))
@@ -44,3 +43,20 @@
 ; Edge-weight utility returning a number given a criteria symbol
 (= (edge-weight $from $to $airline (duration $d) (cost $c) (layovers $l) $criteria)
    (weight-by-criteria (duration $d) (cost $c) (layovers $l) $criteria))
+
+; --- Boilerplate-style helpers ---
+; applyWeighting: illustrative (direct flights)
+(= (applyWeighting $routes duration)
+   (match &self (flight-route $a $b $air (duration $d) (cost $c) (layovers $l)) $d))
+(= (applyWeighting $routes cost)
+   (match &self (flight-route $a $b $air (duration $d) (cost $c) (layovers $l)) $c))
+(= (applyWeighting $routes layovers)
+   (match &self (flight-route $a $b $air (duration $d) (cost $c) (layovers $l)) $l))
+
+; getOptimizedRoute: illustrative; returns candidates for the host to minimize
+(= (getOptimizedRoute $start $end duration)
+   (getDirectRoutes $start $end))
+(= (getOptimizedRoute $start $end cost)
+   (getDirectRoutes $start $end))
+(= (getOptimizedRoute $start $end layovers)
+   (getDirectRoutes $start $end))

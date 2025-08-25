@@ -6,11 +6,14 @@ import networkx as nx
 
 # --- Optional MeTTa/Hyperon integration ---
 HAVE_HYPERON = False
+METTA_INSTANCE = None
 try:
     from hyperon import MeTTa  # type: ignore
     HAVE_HYPERON = True
+    METTA_INSTANCE = MeTTa()
 except Exception:
     HAVE_HYPERON = False
+    METTA_INSTANCE = None
 
 # --- Serve frontend & API from the same Flask app on port 5500 ---
 FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
@@ -60,52 +63,36 @@ def load_sample_edges():
 # -----------------------------
 # Optional: load MeTTa facts
 # -----------------------------
-def load_metta_edges(metta_dir: str):
-    """If Hyperon/MeTTa is available, load flight facts and add to graph."""
-    if not HAVE_HYPERON:
-        return []
-
-    metta_files = []
+def _load_metta_files_into(instance, metta_dir: str):
     for fname in ("flight_routes.metta", "algorithms.metta"):
         fpath = os.path.join(metta_dir, fname)
         if os.path.exists(fpath):
-            metta_files.append(fpath)
+            with open(fpath, "r", encoding="utf-8") as fh:
+                instance.run(fh.read())
 
-    if not metta_files:
-        return []
-
-    m = MeTTa()
-    for f in metta_files:
-        with open(f, "r", encoding="utf-8") as fh:
-            code = fh.read()
-        m.run(code)
-
-    # Pull all flight-route facts
+def _pull_edges_from_metta(instance):
     q = '!(match &self (flight-route $from $to $airline (duration $dur) (cost $cost) (layovers $lay)) ($from $to $airline $dur $cost $lay))'
     try:
-        results = m.run(q)
+        results = instance.run(q)
     except Exception:
         return []
-
     edges = []
     for r in results:
         s = str(r).strip()
         if s.startswith("(") and s.endswith(")"):
             s = s[1:-1]
-        parts, token, in_quote = [], "", False
+        parts, tok, in_q = [], "", False
         for ch in s:
             if ch == '"':
-                in_quote = not in_quote
-                token += ch
-            elif ch == " " and not in_quote:
-                if token:
-                    parts.append(token); token = ""
+                in_q = not in_q
+                tok += ch
+            elif ch == " " and not in_q:
+                if tok:
+                    parts.append(tok); tok = ""
             else:
-                token += ch
-        if token:
-            parts.append(token)
-        if len(parts) != 6:
-            continue
+                tok += ch
+        if tok: parts.append(tok)
+        if len(parts) != 6: continue
 
         def unq(x: str) -> str:
             return x[1:-1] if len(x) >= 2 and x[0] == '"' and x[-1] == '"' else x
@@ -115,9 +102,14 @@ def load_metta_edges(metta_dir: str):
             duration = float(unq(parts[3])); cost = float(unq(parts[4])); lay = int(unq(parts[5]))
         except Exception:
             continue
-
         edges.append(FlightEdge(src, dst, airline, duration, cost, lay))
+    return edges
 
+def load_metta_edges(metta_dir: str):
+    if not (HAVE_HYPERON and METTA_INSTANCE):
+        return []
+    _load_metta_files_into(METTA_INSTANCE, metta_dir)
+    edges = _pull_edges_from_metta(METTA_INSTANCE)
     for e in edges:
         add_edge_to_graph(e)
     return edges
@@ -125,13 +117,14 @@ def load_metta_edges(metta_dir: str):
 # -----------------------------
 # Weighting and Dijkstra
 # -----------------------------
+LAYOVER_PENALTY_PER_HOP_HOURS = 1.5  # tune 0.5–3.0
+
 def edge_weight(u: str, v: str, attrs: Dict[str, Any],
                 w_duration: float, w_cost: float, w_layovers: float) -> float:
-    # Normalize cost a bit to keep scales similar (USD/100)
     return (
         w_duration * float(attrs.get("duration", 0.0)) +
         w_cost     * (float(attrs.get("cost", 0.0)) / 100.0) +
-        w_layovers * float(attrs.get("layovers", 0))
+        w_layovers * LAYOVER_PENALTY_PER_HOP_HOURS
     )
 
 def compute_best_route(src: str, dst: str,
@@ -225,14 +218,38 @@ def api_route():
         return jsonify({"error": f"No route from {src} to {dst}"}), 404
     return jsonify(res)
 
+def add_fact_to_graph_and_metta(start: str, end: str, airline: str,
+                                duration: float, cost: float, layovers: int = 0):
+    add_edge_to_graph(FlightEdge(start, end, airline, duration, cost, layovers))
+    if HAVE_HYPERON and METTA_INSTANCE:
+        atom = f'(flight-route "{start}" "{end}" "{airline}" (duration {duration}) (cost {cost}) (layovers {layovers}))'
+        METTA_INSTANCE.run(atom)
+
+@app.post("/api/update-flight-data")
+def update_flight_data():
+    data = request.get_json(silent=True) or {}
+    required = ["start", "end", "airline", "duration", "cost"]
+    missing = [k for k in required if k not in data]
+    if missing:
+        return jsonify({"error": f"Missing fields: {', '.join(missing)}"}), 400
+    try:
+        start = str(data["start"]).strip()
+        end = str(data["end"]).strip()
+        airline = str(data["airline"]).strip()
+        duration = float(data["duration"])
+        cost = float(data["cost"])
+        layovers = int(data.get("layovers", 0))
+    except Exception:
+        return jsonify({"error": "Invalid field types"}), 400
+    add_fact_to_graph_and_metta(start, end, airline, duration, cost, layovers)
+    return jsonify({"status": "ok"}), 200
+
 # -----------------------------
 # Frontend (same origin)
 # -----------------------------
 @app.route("/")
 def index():
-    # Serve frontend/index.html; other assets (script.js, styles.css) are auto-served at /script.js, /styles.css
     return app.send_static_file("index.html")
 
 if __name__ == "__main__":
-    # Everything on port 5500
     app.run(host="127.0.0.1", port=5500, debug=True)
