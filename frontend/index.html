@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Optimal Flight Route Finder</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>✈️ Optimal Flight Route Finder</h1>
+      <form id="route-form">
+        <div class="row">
+          <label>From</label>
+          <input id="from" placeholder="Toronto" required />
+        </div>
+        <div class="row">
+          <label>To</label>
+          <input id="to" placeholder="Paris" required />
+        </div>
+        <fieldset class="weights">
+          <legend>Weights (0.0 – 1.0)</legend>
+          <div class="row">
+            <label>Duration</label>
+            <input id="w_duration" type="number" min="0" max="1" step="0.1" value="1.0" />
+          </div>
+          <div class="row">
+            <label>Cost</label>
+            <input id="w_cost" type="number" min="0" max="1" step="0.1" value="0.0" />
+          </div>
+          <div class="row">
+            <label>Layovers</label>
+            <input id="w_layovers" type="number" min="0" max="1" step="0.1" value="0.0" />
+          </div>
+        </fieldset>
+        <button type="submit">Find Best Route</button>
+      </form>
+
+      <section id="results" class="card" hidden>
+        <h2>Best Route</h2>
+        <div id="path"></div>
+        <div id="totals"></div>
+        <h3>Segments</h3>
+        <div id="segments"></div>
+      </section>
+
+      <section class="card">
+        <h2>Known Routes</h2>
+        <button id="refresh-routes">Refresh</button>
+        <div id="routes-table"></div>
+      </section>
+    </main>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
