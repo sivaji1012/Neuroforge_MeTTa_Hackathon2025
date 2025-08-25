@@ -1,14 +1,13 @@
-const API = "http://127.0.0.1:5000";
-
+// Call the API on the SAME origin (served by Flask on :5500)
 async function fetchRoutes() {
-  const res = await fetch(`${API}/api/routes`);
+  const res = await fetch(`/api/routes`);
   if (!res.ok) throw new Error("Failed to fetch routes");
   return res.json();
 }
 
 async function fetchBestRoute(params) {
   const qs = new URLSearchParams(params);
-  const res = await fetch(`${API}/api/route?${qs.toString()}`);
+  const res = await fetch(`/api/route?${qs.toString()}`);
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
     throw new Error(j.error || "No route found");
@@ -63,7 +62,7 @@ function renderResult(res) {
 }
 
 document.getElementById("refresh-routes").addEventListener("click", async () => {
-  const data = await fetchRoutes().catch(err => ({routes: []}));
+  const data = await fetchRoutes().catch(() => ({routes: []}));
   renderRoutesTable(data);
 });
 

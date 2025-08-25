@@ -1,11 +1,10 @@
 import os
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 from dataclasses import dataclass
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 import networkx as nx
 
-# Optional MeTTa/Hyperon integration
+# --- Optional MeTTa/Hyperon integration ---
 HAVE_HYPERON = False
 try:
     from hyperon import MeTTa  # type: ignore
@@ -13,8 +12,9 @@ try:
 except Exception:
     HAVE_HYPERON = False
 
-app = Flask(__name__)
-CORS(app)
+# --- Serve frontend & API from the same Flask app on port 5500 ---
+FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
+app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")  # static at /
 
 # -----------------------------
 # Data structures
@@ -28,7 +28,7 @@ class FlightEdge:
     cost: float      # USD
     layovers: int    # 0 for a direct edge
 
-# Built-in sample dataset (you can extend/replace this with MeTTa or CSV)
+# Built-in sample dataset
 SAMPLE_EDGES: List[FlightEdge] = [
     FlightEdge("Toronto", "NewYork",   "AirCanada", 1.5, 220, 0),
     FlightEdge("Toronto", "London",    "AirCanada", 7.2, 520, 0),
@@ -78,66 +78,48 @@ def load_metta_edges(metta_dir: str):
     for f in metta_files:
         with open(f, "r", encoding="utf-8") as fh:
             code = fh.read()
-        # Load code into space
         m.run(code)
 
     # Pull all flight-route facts
-    # Returns tuples of: (src dst airline duration cost layovers)
     q = '!(match &self (flight-route $from $to $airline (duration $dur) (cost $cost) (layovers $lay)) ($from $to $airline $dur $cost $lay))'
     try:
         results = m.run(q)
     except Exception:
-        # Hyperon API variants exist; if this fails, we simply skip MeTTa import
         return []
 
     edges = []
-    # Parse the values back (Hyperon returns nested SExpr-like values).
-    # We'll use a simple string-based parse for portability.
     for r in results:
-        s = str(r)
-        # Expect something like: (Toronto NewYork AirCanada 1.5 220 0)
-        s = s.strip()
+        s = str(r).strip()
         if s.startswith("(") and s.endswith(")"):
             s = s[1:-1]
-        parts = []
-        token = ""
-        in_quote = False
+        parts, token, in_quote = [], "", False
         for ch in s:
             if ch == '"':
                 in_quote = not in_quote
                 token += ch
             elif ch == " " and not in_quote:
                 if token:
-                    parts.append(token)
-                    token = ""
+                    parts.append(token); token = ""
             else:
                 token += ch
         if token:
             parts.append(token)
-
         if len(parts) != 6:
             continue
 
-        # Strip quotes
-        def unq(x):
+        def unq(x: str) -> str:
             return x[1:-1] if len(x) >= 2 and x[0] == '"' and x[-1] == '"' else x
 
-        src = unq(parts[0])
-        dst = unq(parts[1])
-        airline = unq(parts[2])
+        src, dst, airline = unq(parts[0]), unq(parts[1]), unq(parts[2])
         try:
-            duration = float(unq(parts[3]))
-            cost     = float(unq(parts[4]))
-            lay      = int(unq(parts[5]))
+            duration = float(unq(parts[3])); cost = float(unq(parts[4])); lay = int(unq(parts[5]))
         except Exception:
             continue
 
-        edge = FlightEdge(src, dst, airline, duration, cost, lay)
-        edges.append(edge)
+        edges.append(FlightEdge(src, dst, airline, duration, cost, lay))
 
     for e in edges:
         add_edge_to_graph(e)
-
     return edges
 
 # -----------------------------
@@ -165,12 +147,10 @@ def compute_best_route(src: str, dst: str,
     except (nx.NetworkXNoPath, nx.NodeNotFound):
         return None
 
-    # Collect details
     edges = []
     total_duration = 0.0
     total_cost = 0.0
-    # Layovers are path stops minus 1 (edges count minus 1)
-    total_layovers = max(0, len(path) - 2)
+    total_layovers = max(0, len(path) - 2)  # edges-1
 
     for i in range(len(path) - 1):
         u, v = path[i], path[i+1]
@@ -183,7 +163,7 @@ def compute_best_route(src: str, dst: str,
             "cost": attrs.get("cost"),
         })
         total_duration += float(attrs.get("duration", 0.0))
-        total_cost += float(attrs.get("cost", 0.0))
+        total_cost     += float(attrs.get("cost", 0.0))
 
     score = sum(
         edge_weight(path[i], path[i+1], GRAPH[path[i]][path[i+1]], w_duration, w_cost, w_layovers)
@@ -196,8 +176,8 @@ def compute_best_route(src: str, dst: str,
             "duration_hours": round(total_duration, 2),
             "cost_usd": round(total_cost, 2),
             "layovers": total_layovers,
-            "score": round(score, 3)
-        }
+            "score": round(score, 3),
+        },
     }
 
 # -----------------------------
@@ -206,14 +186,13 @@ def compute_best_route(src: str, dst: str,
 def boot():
     GRAPH.clear()
     load_sample_edges()
-    # Try to load MeTTa facts
-    metta_dir = os.path.join(os.path.dirname(__file__), "..", "metta")
-    load_metta_edges(os.path.abspath(metta_dir))
+    metta_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "metta"))
+    load_metta_edges(metta_dir)
 
 boot()
 
 # -----------------------------
-# Routes
+# API
 # -----------------------------
 @app.get("/api/routes")
 def api_routes():
@@ -234,10 +213,9 @@ def api_route():
     dst = request.args.get("to")
     if not src or not dst:
         return jsonify({"error": "Missing required params: from, to"}), 400
-
     try:
         w_duration = float(request.args.get("w_duration", "1.0"))
-        w_cost = float(request.args.get("w_cost", "0.0"))
+        w_cost     = float(request.args.get("w_cost", "0.0"))
         w_layovers = float(request.args.get("w_layovers", "0.0"))
     except Exception:
         return jsonify({"error": "Weights must be numeric"}), 400
@@ -247,5 +225,14 @@ def api_route():
         return jsonify({"error": f"No route from {src} to {dst}"}), 404
     return jsonify(res)
 
+# -----------------------------
+# Frontend (same origin)
+# -----------------------------
+@app.route("/")
+def index():
+    # Serve frontend/index.html; other assets (script.js, styles.css) are auto-served at /script.js, /styles.css
+    return app.send_static_file("index.html")
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Everything on port 5500
+    app.run(host="127.0.0.1", port=5500, debug=True)
