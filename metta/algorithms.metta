@@ -46,4 +46,4 @@
        (choose-min
          (map (lambda ($n) (dijkstra $n $end $criteria))
               (neighbors $start))
-         (lambda ($p) (path-weight (cons $start $p) $criteria))))
+         (lambda ($p) (path-weight (cons $start $p) $criteria)))))

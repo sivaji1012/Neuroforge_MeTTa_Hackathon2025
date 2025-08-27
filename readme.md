@@ -1,107 +1,223 @@
-# Optimal Flight Route Finder — Starter Kit
+# ✈️ Optimal Flight Route Finder
 
-This project is a **minimal, working** flight-route optimizer with:
-
-- **MeTTa** knowledge base for flight facts and queries (see `metta/`).
-- A **Flask** backend that computes optimal routes (Dijkstra / A* ready) and can **optionally** read routes from MeTTa.
-- A lightweight **frontend** to enter origin/destination, set weights (duration/cost/layovers), and visualize the route.
-
-> ✅ Out of the box, the backend runs with a built-in sample dataset.  
-> ✅ If you have Hyperon/MeTTa installed, the backend will **also** load `metta/flight_routes.metta` automatically.
+The Optimal Flight Route Finder is a lightweight system for computing the most efficient flight routes between cities.
+It integrates **MeTTa** (for knowledge representation), **Python + NetworkX** (for pathfinding), **Flask** (for APIs), and a **frontend UI** (HTML/JS).
 
 ---
 
-### 0) Running the Code
+## 🚀 Features
+
+* **Optimized Pathfinding**: Dijkstra and A\* algorithms for shortest travel time.
+* **Custom Weighting**: Users can prioritize duration, cost, or layovers.
+* **Constraints**: End users can apply max duration, price limits, or layover constraints.
+* **Dynamic Updates**: Admins can add new flights (mirrored in Python graph and optionally MeTTa).
+* **Dual Data Sources**:
+
+  * **Python Graph**: Fast in-memory routing.
+  * **MeTTa (Live)**: Knowledge representation and reasoning with Hyperon’s MeTTa interpreter.
+* **Web UI**: End User mode for searching flights, Admin mode for managing routes.
+
+---
+
+## 🛠️ Deployment
+
+### 1. Clone the repository
+
+```bash
+git clone <your_repo_url>
+cd MeTTa-Hackathon
+```
+
+### 2. Backend setup (WSL/Linux recommended)
 
 ```bash
 cd backend
 python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\\Scripts\\activate
+source .venv/bin/activate
+
 pip install -r requirements.txt
-python app.py
+```
 
----
-## Quick Start
-
-### 1) Backend
+If you want **MeTTa/Hyperon** support:
 
 ```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\\Scripts\\activate
-pip install -r requirements.txt
+pip install hyperon
+```
+
+> ⚠️ On Windows native Python, Hyperon often fails to build. WSL2 or Linux is strongly recommended.
+
+### 3. Start the Flask server
+
+```bash
 python app.py
+```
 
-The API starts at http://127.0.0.1:5000.
+By default, this runs at:
+👉 [http://127.0.0.1:5500](http://127.0.0.1:5500)
 
-### 2) Frontend
+### 4. Frontend
 
-Open frontend/index.html in your browser. It calls the backend APIs directly.
+The frontend is served by Flask (from `frontend/`), so you can directly open:
 
-Endpoints
+```
+http://127.0.0.1:5500
+```
 
-GET /api/routes — Returns the full route table the backend is using (merged from built-in sample + any MeTTa facts loaded).
+---
 
-GET /api/route?from=Toronto&to=Paris&w_duration=0.7&w_cost=0.2&w_layovers=0.1
+## ⚖️ Windows vs WSL/Linux
 
-Computes the best path using Dijkstra with a custom weight:
+### ❌ Limitations on Windows
 
-weight(edge) = w_duration * duration_hours
-             + w_cost     * (cost_usd / 100.0)
-             + w_layovers * layover_penalty
+* `hyperon` (MeTTa runtime) may fail to install due to missing Rust/Cargo toolchain or unsupported dynamic libraries.
+* File paths (`.venv/Scripts/activate` vs `.venv/bin/activate`) differ, which can confuse users.
+* Networking quirks: Flask binds to `127.0.0.1`, which works in Windows, but Hyperon dependencies often expect Linux.
 
+### ✅ Advantages of WSL/Linux
 
-w_* params are optional (default: 1.0, 0.0, 0.0 = prioritize duration).
+* Full compatibility with `hyperon` (MeTTa interpreter).
+* Easier dependency resolution for `networkx`, `flask`, and Rust-based Python packages.
+* Uniform Unix-like environment that matches most production deployments.
+* Better performance for I/O and scientific workloads.
 
-Response includes the path, totals, edge-by-edge details, and a breakdown.
+---
 
-MeTTa Integration
+## 🧮 Algorithms Used
 
-Facts are in metta/flight_routes.metta, e.g.:
+### Dijkstra’s Algorithm
 
-(flight-route "Toronto" "NewYork" "AirCanada" (duration 1.5) (cost 220) (layovers 0))
+* Finds the shortest weighted path between two cities.
+* Guarantees optimality if all edge weights are non-negative.
+* In this app, weights are computed as:
 
+```
+weight = w_duration * duration_hours
+       + w_cost     * (cost / 100)
+       + w_layovers * layover_penalty
+```
 
-Query helpers and (illustrative) algorithm stubs are in metta/algorithms.metta.
+### A\* Algorithm
 
-getDirectRoutes, neighbors, edge-weight, weight-by-criteria (illustrative MeTTa).
+* Similar to Dijkstra, but guided by a **heuristic** to speed up search.
+* Heuristic = estimated flight duration between current city and destination:
 
-A functional Uniform-Cost (Dijkstra) sketch in pure MeTTa is included as a learning aid.
+  ```
+  haversine_distance(city, goal) / cruise_speed
+  ```
+* Admissible: never overestimates travel time → ensures optimal routes.
 
-Note: You can execute MeTTa directly via Hyperon. For production-grade performance we use Python Dijkstra here.
+### Custom Weighting
 
-Python ⇄ MeTTa:
+* Users can adjust:
 
-If the hyperon Python package is available, the backend will:
+  * `w_duration` (default 1.0)
+  * `w_cost` (default 0.3–1.0 depending on preset)
+  * `w_layovers` (penalty \~1.5h per layover)
+* Or apply constraints (e.g., “max price = 500 USD”).
 
-load the MeTTa files into a space
+---
 
-run a match query to extract all flight-route facts
+## 🔄 System Flow
 
-merge them into the graph
+```mermaid
+flowchart TD
+  A[User enters query in Frontend] --> B[Frontend JS builds API request]
+  B --> C[/api/route (Flask)]
+  C -->|source=python| D[Python Graph + NetworkX]
+  C -->|source=metta| E[MeTTa Knowledge Base]
 
-If hyperon is not installed, the backend still works using the built-in sample routes.
+  D --> F[Compute route with Dijkstra or A*]
+  E --> G[Match & query flight-route atoms]
+  G --> F
 
-Extend with Real Data
+  F --> H[Return JSON result to Flask]
+  H --> I[Frontend JS renders path, totals, segments]
+  I --> J[User sees optimized route on screen]
+```
 
-To integrate real routes/schedules:
+---
 
-Write an importer that parses CSV/JSON (e.g., OpenFlights, airline timetables) and
-emits MeTTa atoms like (flight-route "YYZ" "JFK" "AC" (duration 1.5) (cost 220) (layovers 0)).
+## 🧩 Architecture Components
 
-Add time windows (dep "09:30") (arr "11:00") (tz "America/Toronto") and implement
-a layover validity check (>= min_connection_minutes) in Python or MeTTa.
+### 1. **MeTTa**
 
-Notes
+* Handles knowledge representation and reasoning.
+* Stores structured flight facts:
 
-The frontend is intentionally simple (vanilla JS). Swap in React/Tailwind later if desired.
+  ```
+  (flight-route "Paris" "Rome" "AirFrance" (duration 2.0) (cost 160) (layovers 0))
+  ```
+* Can answer reasoning queries:
 
-The Python graph uses NetworkX. You can switch to your own A* with a heuristic on great-circle distance.
+  * *“What is the fastest route from CityA to CityB?”*
 
-All units are illustrative:
+### 2. **Python**
 
-duration = hours (float)
+* Middleware between MeTTa and frontend.
+* Runs Dijkstra/A\* on either:
 
-cost = USD
+  * The in-memory Python graph.
+  * A temporary graph rebuilt from live MeTTa atoms.
+* Applies custom weights and constraints.
 
-layovers = 0 for a direct flight edge (the total layovers are computed as stops in the path)
+### 3. **Flask**
+
+* REST API provider:
+
+  * `/api/route` → optimized path
+  * `/api/routes` → all known routes
+  * `/api/update-flight-data` → add flights
+  * `/api/metta/direct` → raw MeTTa query
+  * `/api/cities` → list known nodes
+* Serves the frontend (`index.html`, `script.js`, etc.).
+
+### 4. **Frontend (HTML/JS)**
+
+* Provides two modes:
+
+  * **End User**: pick source/destination, apply presets/constraints.
+  * **Admin**: view routes, add new flights, run MeTTa debug queries.
+* Communicates via AJAX (`fetch`) with Flask.
+* Renders results: best route, total cost/duration/layovers, and flight segments.
+
+---
+
+## 🧪 Example
+
+```bash
+# Python Graph source
+curl "http://127.0.0.1:5500/api/route?from=Paris&to=Rome&method=a_star&source=python"
+
+# MeTTa source (requires hyperon installed)
+curl "http://127.0.0.1:5500/api/route?from=Paris&to=Rome&method=a_star&source=metta"
+```
+
+Expected JSON:
+
+```json
+{
+  "path": ["Paris", "Rome"],
+  "edges": [
+    {"from": "Paris", "to": "Rome", "airline": "AirFrance", "duration": 2.0, "cost": 160}
+  ],
+  "totals": {
+    "duration_hours": 2.0,
+    "cost_usd": 160.0,
+    "layovers": 0,
+    "score": 20.0,
+    "method": "a_star"
+  }
+}
+```
+
+---
+
+## ⚠️ Known Limitations
+
+* Adding new flights via Admin UI updates the **in-memory graph** (and MeTTa if available), but not persisted to `.metta` files.
+* Hyperon support is **experimental** and sensitive to environment. Use WSL/Linux for best results.
+* Heuristic in A\* considers only **duration**, not cost/layovers.
+
+---
+
+Would you like me to also generate a **deployment diagram (architecture)** in addition to the flowchart, showing how Flask, Python Graph, and MeTTa sit between the frontend and the user?

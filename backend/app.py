@@ -9,7 +9,7 @@ import networkx as nx
 try:
     from flask_cors import CORS  # type: ignore
 except Exception:
-    CORS = None  # same-origin does not need CORS
+    CORS = None
 
 # --- Optional MeTTa/Hyperon integration ---
 HAVE_HYPERON = False
@@ -24,7 +24,7 @@ except Exception:
 
 # --- Serve frontend & API from the same Flask app on port 5500 ---
 FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
-app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")  # static at /
+app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 if CORS:
     CORS(app)
 
@@ -36,11 +36,10 @@ class FlightEdge:
     src: str
     dst: str
     airline: str
-    duration: float  # hours
-    cost: float      # USD
-    layovers: int    # 0 for a direct edge
+    duration: float
+    cost: float
+    layovers: int
 
-# Built-in sample dataset
 SAMPLE_EDGES: List[FlightEdge] = [
     FlightEdge("Toronto", "NewYork",   "AirCanada", 1.5, 220, 0),
     FlightEdge("Toronto", "London",    "AirCanada", 7.2, 520, 0),
@@ -56,7 +55,6 @@ SAMPLE_EDGES: List[FlightEdge] = [
 
 GRAPH = nx.DiGraph()
 
-# City coordinates (approximate, for heuristic)
 CITY_COORDS: Dict[str, Tuple[float, float]] = {
     "Toronto": (43.65107, -79.347015),
     "NewYork": (40.712776, -74.005974),
@@ -80,129 +78,29 @@ def load_sample_edges():
         add_edge_to_graph(e)
 
 # -----------------------------
-# MeTTa helpers (load at boot + request-time)
+# MeTTa helpers
 # -----------------------------
 def _load_metta_files_into(instance, metta_dir: str):
-    """
-    Load ONLY metta/flight_routes.metta.
-    Supports multi-line S-expressions by buffering until parens are balanced.
-    Emits precise line ranges on parse errors.
-    """
-    fpath = os.path.join(metta_dir, "flight_routes.metta")
-    if not os.path.exists(fpath):
-        return
-
-    def strip_inline_comment(s: str) -> str:
-        # Remove anything after an unquoted ';'
-        out, in_str, esc = [], False, False
-        for ch in s:
-            if in_str:
-                out.append(ch)
-                if esc:
-                    esc = False
-                elif ch == "\\":
-                    esc = True
-                elif ch == '"':
-                    in_str = False
-                continue
-            if ch == '"':
-                in_str = True
-                out.append(ch)
-            elif ch == ';':
-                break  # comment starts (outside string) → ignore rest of line
-            else:
-                out.append(ch)
-        return "".join(out)
-
-    def paren_delta_outside_strings(s: str) -> int:
-        # Count '(' and ')' outside of quoted strings
-        bal, in_str, esc = 0, False, False
-        for ch in s:
-            if in_str:
-                if esc:
-                    esc = False
-                elif ch == "\\":
-                    esc = True
-                elif ch == '"':
-                    in_str = False
-                continue
-            else:
-                if ch == '"':
-                    in_str = True
-                elif ch == '(':
-                    bal += 1
-                elif ch == ')':
-                    bal -= 1
-        return bal
-
-    buf: list[str] = []
-    bal = 0
-    start_line = None
-
-    with open(fpath, "r", encoding="utf-8") as fh:
-        for i, raw in enumerate(fh, start=1):
-            # Strip inline comments and whitespace
-            code = strip_inline_comment(raw).strip()
-            if not code:
-                continue  # skip blank/comment-only lines
-
-            if bal == 0:
-                start_line = i
-                buf = []
-
-            buf.append(code)
-            bal += paren_delta_outside_strings(code)
-
-            if bal == 0:
-                form = " ".join(buf)
-                try:
-                    instance.run(form)
-                except Exception as e:
-                    raise RuntimeError(
-                        f"MeTTa parse error in {fpath}:{start_line}-{i} -> `{form}` :: {e}"
-                    )
-                buf = []
-                start_line = None
-
-    if bal != 0:
-        # Unclosed expression at EOF
-        joined = " ".join(buf)
-        raise RuntimeError(
-            f"MeTTa parse error in {fpath}:{start_line}-EOF -> (unclosed form) `{joined}`"
-        )
-
+    for fname in ("flight_routes.metta", "algorithms.metta"):
+        fpath = os.path.join(metta_dir, fname)
+        if os.path.exists(fpath):
+            with open(fpath, "r", encoding="utf-8") as fh:
+                instance.run(fh.read())
 
 def _pull_edges_from_metta(instance) -> List[FlightEdge]:
-    q = '!(match &self (flight-route $from $to $airline (duration $dur) (cost $cost) (layovers $lay)) ($from $to $airline $dur $cost $lay))'
+    q = '!(match &self (flight-route $from $to $air (duration $d) (cost $c) (layovers $l)) ($from $to $air $d $c $l))'
     try:
         results = instance.run(q)
     except Exception:
         return []
     edges: List[FlightEdge] = []
     for r in results:
-        s = str(r).strip()
-        if s.startswith("(") and s.endswith(")"):
-            s = s[1:-1]
-        parts, tok, in_q = [], "", False
-        for ch in s:
-            if ch == '"':
-                in_q = not in_q
-                tok += ch
-            elif ch == " " and not in_q:
-                if tok:
-                    parts.append(tok); tok = ""
-            else:
-                tok += ch
-        if tok: parts.append(tok)
+        parts = str(r).replace("(", "").replace(")", "").split()
         if len(parts) != 6:
             continue
-
-        def unq(x: str) -> str:
-            return x[1:-1] if len(x) >= 2 and x[0] == '"' and x[-1] == '"' else x
-
-        src, dst, airline = unq(parts[0]), unq(parts[1]), unq(parts[2])
+        src, dst, airline = parts[0], parts[1], parts[2]
         try:
-            duration = float(unq(parts[3])); cost = float(unq(parts[4])); lay = int(unq(parts[5]))
+            duration = float(parts[3]); cost = float(parts[4]); lay = int(parts[5])
         except Exception:
             continue
         edges.append(FlightEdge(src, dst, airline, duration, cost, lay))
@@ -217,7 +115,6 @@ def load_metta_edges(metta_dir: str):
         add_edge_to_graph(e)
     return edges
 
-# Build a temporary graph from edges (used for request-time MeTTa)
 def graph_from_edges(edges: List[FlightEdge]) -> nx.DiGraph:
     g = nx.DiGraph()
     for e in edges:
@@ -230,7 +127,6 @@ def graph_from_edges(edges: List[FlightEdge]) -> nx.DiGraph:
         )
     return g
 
-# Request-time pull of edges from the *current* MeTTa space
 def edges_from_metta_now() -> List[FlightEdge]:
     if not (HAVE_HYPERON and METTA_INSTANCE):
         return []
@@ -239,7 +135,7 @@ def edges_from_metta_now() -> List[FlightEdge]:
 # -----------------------------
 # Weights & Heuristic
 # -----------------------------
-LAYOVER_PENALTY_PER_HOP_HOURS = 1.5  # tune 0.5–3.0
+LAYOVER_PENALTY_PER_HOP_HOURS = 1.5
 CRUISE_SPEED_KMPH = 800.0
 EARTH_R_KM = 6371.0088
 
@@ -254,20 +150,15 @@ def edge_weight(u: str, v: str, attrs: Dict[str, Any],
 def haversine_km(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     (lat1, lon1), (lat2, lon2) = a, b
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
+    dlat = lat2 - lat1; dlon = lon2 - lon1
     h = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
     return 2 * EARTH_R_KM * math.asin(math.sqrt(h))
 
 def heuristic_duration_only(node: str, goal: str, w_duration: float) -> float:
-    """Admissible heuristic: only duration component (cost/layovers are >= 0)."""
-    a = CITY_COORDS.get(node)
-    b = CITY_COORDS.get(goal)
-    if not (a and b):
-        return 0.0
+    a = CITY_COORDS.get(node); b = CITY_COORDS.get(goal)
+    if not (a and b): return 0.0
     km = haversine_km(a, b)
-    hours = km / CRUISE_SPEED_KMPH
-    return w_duration * hours
+    return w_duration * (km / CRUISE_SPEED_KMPH)
 
 # -----------------------------
 # Routing
@@ -278,35 +169,33 @@ def compute_best_route_on_graph(G: nx.DiGraph, src: str, dst: str,
     if src not in G or dst not in G:
         return None
 
-    # Build weighted projection
     H = nx.DiGraph()
     for u, v, attrs in G.edges(data=True):
         w = edge_weight(u, v, attrs, w_duration, w_cost, w_layovers)
-        new_attrs = dict(attrs)
-        new_attrs["weight"] = float(w)
+        new_attrs = dict(attrs); new_attrs["weight"] = float(w)
         H.add_edge(u, v, **new_attrs)
 
     try:
         if method == "a_star":
-            h = lambda n: heuristic_duration_only(n, dst, w_duration)
-            path = nx.astar_path(H, source=src, target=dst, heuristic=h, weight="weight")
+           def h(u, v):
+            return heuristic_duration_only(u, dst, w_duration)
+           path = nx.astar_path(H, source=src, target=dst, heuristic=h, weight="weight")
         else:
-            path = nx.shortest_path(H, source=src, target=dst, weight="weight", method="dijkstra")
-    except (nx.NetworkXNoPath, nx.NodeNotFound):
+            path = nx.algorithms.shortest_paths.weighted.dijkstra_path(H, source=src, target=dst, weight="weight")
+    except nx.NetworkXNoPath:
         return None
+    except Exception as e:
+        raise RuntimeError(f"routing failed: {e}") from e
 
-    # Collect details
     edges = []
     total_duration = 0.0
     total_cost = 0.0
     total_layovers = max(0, len(path) - 2)
-
     for i in range(len(path) - 1):
         u, v = path[i], path[i+1]
         attrs = H[u][v]
         edges.append({
-            "from": u,
-            "to": v,
+            "from": u, "to": v,
             "airline": attrs.get("airline"),
             "duration": attrs.get("duration"),
             "cost": attrs.get("cost"),
@@ -327,7 +216,6 @@ def compute_best_route_on_graph(G: nx.DiGraph, src: str, dst: str,
         },
     }
 
-# Convenience wrapper using the global in-memory graph
 def compute_best_route(src: str, dst: str,
                        w_duration: float, w_cost: float, w_layovers: float,
                        method: str = "dijkstra"):
@@ -362,10 +250,9 @@ def api_routes():
 
 @app.get("/api/route")
 def api_route():
-    src = request.args.get("from")
-    dst = request.args.get("to")
+    src = request.args.get("from"); dst = request.args.get("to")
     method = request.args.get("method", "dijkstra").lower()
-    source = request.args.get("source", "python").lower()  # python | metta
+    source = request.args.get("source", "python").lower()
 
     if method not in ("dijkstra", "a_star", "astar", "a*"):
         method = "dijkstra"
@@ -381,24 +268,36 @@ def api_route():
     except Exception:
         return jsonify({"error": "Weights must be numeric"}), 400
 
-    if source == "metta":
-        if not (HAVE_HYPERON and METTA_INSTANCE):
-            return jsonify({"error": "MeTTa/Hyperon not available"}), 400
-        metta_edges = edges_from_metta_now()
-        Gtmp = graph_from_edges(metta_edges)
-        res = compute_best_route_on_graph(Gtmp, src, dst, w_duration, w_cost, w_layovers, method=method)
-    else:
-        res = compute_best_route(src, dst, w_duration, w_cost, w_layovers, method=method)
+    try:
+        if source == "metta":
+            if not (HAVE_HYPERON and METTA_INSTANCE):
+                return jsonify({"error": "MeTTa/Hyperon not available"}), 400
+            metta_edges = edges_from_metta_now()
+            Gtmp = graph_from_edges(metta_edges)
+            res = compute_best_route_on_graph(Gtmp, src, dst, w_duration, w_cost, w_layovers, method=method)
+        else:
+            res = compute_best_route(src, dst, w_duration, w_cost, w_layovers, method=method)
+    except Exception as e:
+        return jsonify({"error": f"Internal routing error: {e}"}), 500
 
     if not res:
         return jsonify({"error": f"No route from {src} to {dst} (source={source})"}), 404
     return jsonify(res)
 
+@app.get("/api/cities")
+def api_cities():
+    source = request.args.get("source", "python").lower()
+    if source == "metta":
+        if not (HAVE_HYPERON and METTA_INSTANCE):
+            return jsonify({"source": "metta", "cities": []})
+        edges = edges_from_metta_now()
+        nodes = sorted({e.src for e in edges} | {e.dst for e in edges})
+        return jsonify({"source": "metta", "cities": nodes})
+    return jsonify({"source": "python", "cities": sorted(GRAPH.nodes)})
+
 def add_fact_to_graph_and_metta(start: str, end: str, airline: str,
                                 duration: float, cost: float, layovers: int = 0):
-    # Update Python graph
     add_edge_to_graph(FlightEdge(start, end, airline, duration, cost, layovers))
-    # Mirror into MeTTa (in-memory) if available
     if HAVE_HYPERON and METTA_INSTANCE:
         atom = f'(flight-route "{start}" "{end}" "{airline}" (duration {duration}) (cost {cost}) (layovers {layovers}))'
         METTA_INSTANCE.run(atom)
@@ -422,13 +321,11 @@ def update_flight_data():
     add_fact_to_graph_and_metta(start, end, airline, duration, cost, layovers)
     return jsonify({"status": "ok"}), 200
 
-# (Optional) tiny MeTTa debug endpoint
 @app.get("/api/metta/direct")
 def api_metta_direct():
     if not (HAVE_HYPERON and METTA_INSTANCE):
         return jsonify({"error": "MeTTa/Hyperon not available"}), 400
-    start = request.args.get("from")
-    end = request.args.get("to")
+    start = request.args.get("from"); end = request.args.get("to")
     if not start or not end:
         return jsonify({"error": "Missing required params: from, to"}), 400
     q = f'!(match &self (flight-route "{start}" "{end}" $air (duration $d) (cost $c) (layovers $l)) ($air $d $c $l))'
@@ -439,7 +336,7 @@ def api_metta_direct():
     return jsonify({"from": start, "to": end, "candidates": res})
 
 # -----------------------------
-# Frontend (same origin)
+# Frontend
 # -----------------------------
 @app.route("/")
 def index():

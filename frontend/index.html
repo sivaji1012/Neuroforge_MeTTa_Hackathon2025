@@ -2,73 +2,118 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Optimal Flight Route Finder — A*</title>
+    <title>Optimal Flight Route Finder</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <header class="topbar">
+      <div class="brand">✈️ Flight Route Finder</div>
+      <div class="mode">
+        <label for="mode">Mode</label>
+        <select id="mode">
+          <option value="end">End User</option>
+          <option value="admin">Web Admin</option>
+        </select>
+      </div>
+    </header>
+
     <main class="container">
-      <h1>✈️ Optimal Flight Route Finder</h1>
 
-      <form id="route-form" class="card">
-        <h2>Find Best Route</h2>
-        <div class="row">
-          <label>From</label>
-          <input id="from" placeholder="Toronto" required />
-        </div>
-        <div class="row">
-          <label>To</label>
-          <input id="to" placeholder="Rome" required />
-        </div>
-        <div class="row">
-          <label>Algorithm</label>
-          <select id="method">
-            <option value="dijkstra">Dijkstra</option>
-            <option value="a_star">A*</option>
-          </select>
-        </div>
-        <fieldset class="weights">
-          <legend>Weights (0.0 – 1.0)</legend>
-          <div class="row">
-            <label>Duration</label>
-            <input id="w_duration" type="number" min="0" max="1" step="0.1" value="1.0" />
-          </div>
-          <div class="row">
-            <label>Cost</label>
-            <input id="w_cost" type="number" min="0" max="1" step="0.1" value="0.0" />
-          </div>
-          <div class="row">
-            <label>Layovers</label>
-            <input id="w_layovers" type="number" min="0" max="1" step="0.1" value="0.0" />
-          </div>
-        </fieldset>
-        <button type="submit">Find Best Route</button>
-      </form>
+      <!-- ===== End User Panel ===== -->
+      <section id="user-panel">
+        <form id="user-route-form" class="card">
+          <h2>Find Route (End User)</h2>
 
-      <section id="results" class="card" hidden>
-        <h2>Best Route</h2>
-        <div id="path"></div>
-        <div id="totals"></div>
-        <h3>Segments</h3>
-        <div id="segments"></div>
+          <div class="row">
+            <label>From</label>
+            <input id="u_from" placeholder="Paris" required />
+          </div>
+          <div class="row">
+            <label>To</label>
+            <input id="u_to" placeholder="Rome" required />
+          </div>
+          <div class="row">
+            <label>Data Source</label>
+            <select id="u_source">
+              <option value="python">Python Graph</option>
+              <option value="metta" selected>MeTTa (Live)</option>
+            </select>
+          </div>
+
+          <fieldset class="weights">
+            <legend>Preference Preset</legend>
+            <div class="row">
+              <label>Preset</label>
+              <select id="u_preset">
+                <option value="balanced" selected>Balanced</option>
+                <option value="fastest">Fastest</option>
+                <option value="cheapest">Cheapest</option>
+                <option value="fewest_layovers">Fewest Layovers</option>
+              </select>
+            </div>
+          </fieldset>
+
+          <fieldset class="weights">
+            <legend>Constraints (optional)</legend>
+            <div class="row">
+              <label>Max layovers</label>
+              <input id="u_max_layovers" type="number" min="0" step="1" />
+            </div>
+            <div class="row">
+              <label>Max duration (h)</label>
+              <input id="u_max_duration" type="number" min="0" step="0.1" />
+            </div>
+            <div class="row">
+              <label>Max price (USD)</label>
+              <input id="u_max_price" type="number" min="0" step="1" />
+            </div>
+            <div class="row">
+              <label>Min price (USD)</label>
+              <input id="u_min_price" type="number" min="0" step="1" />
+            </div>
+          </fieldset>
+
+          <button type="submit">Search</button>
+        </form>
+
+        <section id="results" class="card" hidden>
+          <h2>Best Route</h2>
+          <div id="path"></div>
+          <div id="totals"></div>
+          <h3>Segments</h3>
+          <div id="segments"></div>
+        </section>
       </section>
 
-      <section class="card">
-        <h2>Known Routes</h2>
-        <button id="refresh-routes">Refresh</button>
-        <div id="routes-table"></div>
-      </section>
+      <!-- ===== Web Admin Panel ===== -->
+      <section id="admin-panel" hidden>
+        <section class="card">
+          <h2>Known Routes (Python Graph)</h2>
+          <button id="refresh-routes">Refresh</button>
+          <div id="routes-table"></div>
+        </section>
 
-      <form id="add-flight-form" class="card">
-        <h2>Add New Flight</h2>
-        <div class="row"><label>From</label><input id="af_from" placeholder="CityA" required /></div>
-        <div class="row"><label>To</label><input id="af_to" placeholder="CityB" required /></div>
-        <div class="row"><label>Airline</label><input id="af_airline" placeholder="Airline" required /></div>
-        <div class="row"><label>Duration (h)</label><input id="af_duration" type="number" step="0.1" min="0" placeholder="2.5" required /></div>
-        <div class="row"><label>Cost (USD)</label><input id="af_cost" type="number" step="1" min="0" placeholder="200" required /></div>
-        <div class="row"><label>Layovers</label><input id="af_layovers" type="number" step="1" min="0" value="0" /></div>
-        <button type="submit">Add Flight</button>
-      </form>
+        <form id="add-flight-form" class="card">
+          <h2>Add New Flight</h2>
+          <div class="row"><label>From</label><input id="af_from" placeholder="CityA" required /></div>
+          <div class="row"><label>To</label><input id="af_to" placeholder="CityB" required /></div>
+          <div class="row"><label>Airline</label><input id="af_airline" placeholder="Airline" required /></div>
+          <div class="row"><label>Duration (h)</label><input id="af_duration" type="number" step="0.1" min="0" required /></div>
+          <div class="row"><label>Cost (USD)</label><input id="af_cost" type="number" step="1" min="0" required /></div>
+          <div class="row"><label>Layovers</label><input id="af_layovers" type="number" step="1" min="0" value="0" /></div>
+          <p class="hint">Adds to Python graph and mirrors to in-memory MeTTa (if installed). Not persisted to file by default.</p>
+          <button type="submit">Add Flight</button>
+        </form>
+
+        <form id="metta-debug-form" class="card">
+          <h2>MeTTa Direct Check (Debug)</h2>
+          <div class="row"><label>From</label><input id="md_from" placeholder="London" /></div>
+          <div class="row"><label>To</label><input id="md_to" placeholder="Paris" /></div>
+          <button type="submit">Query Direct Flights</button>
+          <pre id="md_result" class="pre"></pre>
+        </form>
+      </section>
     </main>
 
     <script src="./script.js"></script>
