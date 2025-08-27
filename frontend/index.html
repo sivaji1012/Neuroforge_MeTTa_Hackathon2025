@@ -1,121 +1,156 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Optimal Flight Route Finder</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="./styles.css" />
-  </head>
-  <body>
-    <header class="topbar">
-      <div class="brand">✈️ Flight Route Finder</div>
-      <div class="mode">
-        <label for="mode">Mode</label>
-        <select id="mode">
-          <option value="end">End User</option>
-          <option value="admin">Web Admin</option>
-        </select>
+<head>
+  <meta charset="utf-8"/>
+  <title>Optimal Flight Route Finder</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link rel="stylesheet" href="styles.css"/>
+  <script defer src="scripts.js"></script>
+</head>
+<body>
+  <!-- Top bar -->
+  <div class="topbar">
+    <h1>Optimal Flight Route Finder</h1>
+    <span class="badge" id="healthBadge">checking…</span>
+  </div>
+
+  <div class="container">
+    <!-- SEARCH CARD -->
+    <div class="card">
+      <h2>Search</h2>
+
+      <!-- From / To / Method -->
+      <div class="grid three">
+        <div class="form-row">
+          <label for="fromSel">From</label>
+          <select id="fromSel" class="select"></select>
+        </div>
+        <div class="form-row">
+          <label for="toSel">To</label>
+          <select id="toSel" class="select"></select>
+        </div>
+        <div class="form-row">
+          <label for="methodSel">Method</label>
+          <select id="methodSel" class="select">
+            <option value="metta">MeTTa (rules)</option>
+            <option value="dijkstra">Dijkstra</option>
+            <option value="a_star">A*</option>
+          </select>
+        </div>
       </div>
-    </header>
 
-    <main class="container">
+      <!-- Trip type -->
+      <h3>Trip type</h3>
+      <div class="preset-row" id="tripTypeRow" role="radiogroup" aria-label="Trip type">
+        <label><input type="radio" name="tripType" value="oneway" checked> One-way</label>
+        <label><input type="radio" name="tripType" value="return"> Return</label>
+        <label><input type="radio" name="tripType" value="multicity"> Multi-city</label>
+      </div>
 
-      <!-- ===== End User Panel ===== -->
-      <section id="user-panel">
-        <form id="user-route-form" class="card">
-          <h2>Find Route (End User)</h2>
+      <!-- Optional Multi-city text input (shown only when tripType==multicity) -->
+      <div class="form-row" id="multiCityRow" style="display:none">
+        <label for="multiCities">Multi-city stops (comma-separated, e.g. <i>NewYork,Paris,Frankfurt</i>)</label>
+        <input id="multiCities" class="input" type="text" placeholder="City1, City2, …"/>
+        <small class="muted" style="color:var(--muted)">
+          The full itinerary is: <b>From</b> → first stop → … → last stop → <b>To</b>.
+        </small>
+      </div>
 
-          <div class="row">
-            <label>From</label>
-            <input id="u_from" placeholder="Paris" required />
+      <!-- Weights + Constraints -->
+      <div class="grid two">
+        <!-- Weights -->
+        <div class="card">
+          <h3>Custom weighting</h3>
+          <div class="form-row">
+            <label>Duration weight: <span id="wdVal">1.0</span></label>
+            <input id="wd" type="range" min="0" max="2" value="1" step="0.1"/>
           </div>
-          <div class="row">
-            <label>To</label>
-            <input id="u_to" placeholder="Rome" required />
+          <div class="form-row">
+            <label>Cost weight: <span id="wcVal">0.0</span></label>
+            <input id="wc" type="range" min="0" max="2" value="0" step="0.1"/>
           </div>
-          <div class="row">
-            <label>Data Source</label>
-            <select id="u_source">
-              <option value="python">Python Graph</option>
-              <option value="metta" selected>MeTTa (Live)</option>
+          <div class="form-row">
+            <label>Layover weight: <span id="wlVal">0.0</span></label>
+            <input id="wl" type="range" min="0" max="2" value="0" step="0.1"/>
+          </div>
+          <div class="preset-row">
+            <span>Presets:</span>
+            <button class="btn chip" data-preset="fastest">Fastest</button>
+            <button class="btn chip" data-preset="cheapest">Cheapest</button>
+            <button class="btn chip" data-preset="fewest">Fewest stops</button>
+          </div>
+        </div>
+
+        <!-- Constraints -->
+        <div class="card">
+          <h3>Constraints</h3>
+          <div class="form-row">
+            <label for="maxLayovers">Max layovers (edges − 1)</label>
+            <input id="maxLayovers" class="input" type="number" min="0" max="9" value="2"/>
+          </div>
+
+          <div class="form-row">
+            <label for="sortSel">Sort by</label>
+            <select id="sortSel" class="select">
+              <option value="best">Best</option>
+              <option value="cheapest">Cheapest first</option>
+              <option value="fastest">Fastest first</option>
             </select>
           </div>
 
-          <fieldset class="weights">
-            <legend>Preference Preset</legend>
-            <div class="row">
-              <label>Preset</label>
-              <select id="u_preset">
-                <option value="balanced" selected>Balanced</option>
-                <option value="fastest">Fastest</option>
-                <option value="cheapest">Cheapest</option>
-                <option value="fewest_layovers">Fewest Layovers</option>
-              </select>
+          <!-- Dates (UI-only; scripts.js already ignores them unless you use them) -->
+          <div class="grid two">
+            <div class="form-row">
+              <label for="dateOut">Outbound date</label>
+              <input id="dateOut" class="input" type="date" placeholder="mm/dd/yyyy"/>
             </div>
-          </fieldset>
-
-          <fieldset class="weights">
-            <legend>Constraints (optional)</legend>
-            <div class="row">
-              <label>Max layovers</label>
-              <input id="u_max_layovers" type="number" min="0" step="1" />
+            <div class="form-row">
+              <label for="dateRet">Return date <span style="color:var(--muted)">(roundtrip only)</span></label>
+              <input id="dateRet" class="input" type="date" placeholder="mm/dd/yyyy"/>
             </div>
-            <div class="row">
-              <label>Max duration (h)</label>
-              <input id="u_max_duration" type="number" min="0" step="0.1" />
-            </div>
-            <div class="row">
-              <label>Max price (USD)</label>
-              <input id="u_max_price" type="number" min="0" step="1" />
-            </div>
-            <div class="row">
-              <label>Min price (USD)</label>
-              <input id="u_min_price" type="number" min="0" step="1" />
-            </div>
-          </fieldset>
+          </div>
+          <label><input type="checkbox" id="flexDates"> Flexible ± 3 days</label>
+        </div>
+      </div>
 
-          <button type="submit">Search</button>
-        </form>
+      <!-- Actions -->
+      <div class="actions">
+        <button id="swapBtn" class="btn" title="Swap origin/destination">Swap</button>
+        <button id="searchBtn" class="btn primary">Find best route</button>
+      </div>
+    </div>
 
-        <section id="results" class="card" hidden>
-          <h2>Best Route</h2>
-          <div id="path"></div>
-          <div id="totals"></div>
-          <h3>Segments</h3>
-          <div id="segments"></div>
-        </section>
-      </section>
+    <!-- RESULT CARD (moved above Known Routes) -->
+    <div class="card">
+      <h2>Result</h2>
+      <div class="badges" id="metrics"></div>
+      <div id="result" class="result empty">Choose origin/destination and click “Find best route”.</div>
+    </div>
 
-      <!-- ===== Web Admin Panel ===== -->
-      <section id="admin-panel" hidden>
-        <section class="card">
-          <h2>Known Routes (Python Graph)</h2>
-          <button id="refresh-routes">Refresh</button>
-          <div id="routes-table"></div>
-        </section>
+    <!-- KNOWN ROUTES -->
+    <div class="card">
+      <h2>Known routes</h2>
+      <div id="routesTable" class="table-wrap"></div>
+    </div>
+  </div>
 
-        <form id="add-flight-form" class="card">
-          <h2>Add New Flight</h2>
-          <div class="row"><label>From</label><input id="af_from" placeholder="CityA" required /></div>
-          <div class="row"><label>To</label><input id="af_to" placeholder="CityB" required /></div>
-          <div class="row"><label>Airline</label><input id="af_airline" placeholder="Airline" required /></div>
-          <div class="row"><label>Duration (h)</label><input id="af_duration" type="number" step="0.1" min="0" required /></div>
-          <div class="row"><label>Cost (USD)</label><input id="af_cost" type="number" step="1" min="0" required /></div>
-          <div class="row"><label>Layovers</label><input id="af_layovers" type="number" step="1" min="0" value="0" /></div>
-          <p class="hint">Adds to Python graph and mirrors to in-memory MeTTa (if installed). Not persisted to file by default.</p>
-          <button type="submit">Add Flight</button>
-        </form>
+  <div class="footer">
+    MeTTa core routing • Python integration • NetworkX comparators
+  </div>
 
-        <form id="metta-debug-form" class="card">
-          <h2>MeTTa Direct Check (Debug)</h2>
-          <div class="row"><label>From</label><input id="md_from" placeholder="London" /></div>
-          <div class="row"><label>To</label><input id="md_to" placeholder="Paris" /></div>
-          <button type="submit">Query Direct Flights</button>
-          <pre id="md_result" class="pre"></pre>
-        </form>
-      </section>
-    </main>
-
-    <script src="./script.js"></script>
-  </body>
+  <!-- Small inline booster for Multi-city visibility.
+       (Safe even if scripts.js already handles this; it just sets initial state on load.) -->
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const radios = Array.from(document.querySelectorAll('input[name="tripType"]'));
+      const multiRow = document.getElementById('multiCityRow');
+      const sync = () => {
+        const val = (radios.find(r => r.checked) || {}).value;
+        multiRow.style.display = (val === 'multicity') ? 'block' : 'none';
+      };
+      radios.forEach(r => r.addEventListener('change', sync));
+      sync();
+    });
+  </script>
+</body>
 </html>
