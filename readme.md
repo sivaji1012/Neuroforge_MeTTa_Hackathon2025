@@ -218,6 +218,3 @@ Expected JSON:
 * Hyperon support is **experimental** and sensitive to environment. Use WSL/Linux for best results.
 * Heuristic in A\* considers only **duration**, not cost/layovers.
 
----
-
-Would you like me to also generate a **deployment diagram (architecture)** in addition to the flowchart, showing how Flask, Python Graph, and MeTTa sit between the frontend and the user?
