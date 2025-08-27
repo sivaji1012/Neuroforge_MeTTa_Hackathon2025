@@ -1,4 +1,4 @@
 flask
 flask-cors
 networkx
-# hyperon  # Optional: enable if your environment provides a compatible Hyperon/MeTTa wheel
+hyperon  # Optional: enable if your environment provides a compatible Hyperon/MeTTa wheel
